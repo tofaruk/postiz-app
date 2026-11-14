@@ -10,6 +10,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { bucketUrl } from './bucket-url';
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import path from 'path';
@@ -50,7 +51,6 @@ const {
   CLOUDFLARE_ACCESS_KEY,
   CLOUDFLARE_SECRET_ACCESS_KEY,
   CLOUDFLARE_BUCKETNAME,
-  CLOUDFLARE_BUCKET_URL,
 } = process.env;
 
 const R2 = new S3Client({
@@ -112,7 +112,7 @@ export async function simpleUpload(
   const command = new PutObjectCommand({ ...params });
   await R2.send(command);
 
-  return CLOUDFLARE_BUCKET_URL + '/' + randomFilename;
+  return bucketUrl() + '/' + randomFilename;
 }
 
 export async function createMultipartUpload(req: Request, res: Response) {
@@ -251,7 +251,7 @@ export async function completeMultipartUpload(req: Request, res: Response) {
     }
 
     response.Location =
-      process.env.CLOUDFLARE_BUCKET_URL +
+      bucketUrl() +
       '/' +
       response?.Location?.split('/').at(-1);
     return response;
