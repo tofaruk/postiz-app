@@ -22,6 +22,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { streamUploadOptions } from '@gitroom/nestjs-libraries/upload/multer.stream.engine';
 import { SubscriptionService } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/subscription.service';
 import { UploadFactory } from '@gitroom/nestjs-libraries/upload/upload.factory';
+import { bucketUrl } from '@gitroom/nestjs-libraries/upload/bucket-url';
 import { SaveMediaInformationDto } from '@gitroom/nestjs-libraries/dtos/media/save.media.information.dto';
 import { VideoDto } from '@gitroom/nestjs-libraries/dtos/videos/video.dto';
 import { VideoFunctionDto } from '@gitroom/nestjs-libraries/dtos/videos/video.function.dto';
@@ -127,7 +128,7 @@ export class MediaController {
     return this._mediaService.saveFile(
       org.id,
       name,
-      process.env.CLOUDFLARE_BUCKET_URL + '/' + name,
+      bucketUrl() + '/' + name,
       originalName || undefined
     );
   }
