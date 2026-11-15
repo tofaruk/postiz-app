@@ -220,6 +220,14 @@ export class PublicIntegrationsController {
       }
     }
 
+    // No Time German: tags named in the request are made when missing (Postiz only attaches tags that exist).
+    if (Array.isArray(rawBody?.tags) && rawBody.tags.length) {
+      await this._postsService.ensureTags(org.id, rawBody.tags);
+      body.tags = rawBody.tags
+        .filter((tag: any) => typeof tag?.label === 'string' && tag.label.trim())
+        .map((tag: any) => ({ value: tag.label.trim(), label: tag.label.trim() }));
+    }
+
     const allowedCreationMethods = ['CLI', 'API'] as const;
     const creationMethod = allowedCreationMethods.includes(
       rawBody.creationMethod

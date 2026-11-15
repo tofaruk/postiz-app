@@ -95,6 +95,11 @@ export const CalendarContext = createContext({
   setSelectedChannels: (channels: string[] | null) => {
     /** empty **/
   },
+  // The Publish page's search (a post id, or words in the text, a tag or a channel name).
+  listSearch: '',
+  setListSearch: (search: string) => {
+    /** empty **/
+  },
   currentHour: newDayjs().startOf('hour'),
 });
 
@@ -231,6 +236,15 @@ export const CalendarWeekProvider: FC<{
     setListPage(0);
   }, []);
 
+  // The Publish page's search, kept in its address as ?q= (the studio links to a post with ?q=<post id>).
+  const [listSearch, setListSearchRaw] = useState<string>(
+    listOnly ? searchParams.get('q') || '' : ''
+  );
+  const setListSearch = useCallback((next: string) => {
+    setListSearchRaw(next);
+    setListPage(0);
+  }, []);
+
   const [filters, setFilters] = useState({
     startDate: initialRange.startDate,
     endDate: initialRange.endDate,
@@ -257,11 +271,12 @@ export const CalendarWeekProvider: FC<{
       ...(selectedChannels
         ? { channels: selectedChannels.length ? selectedChannels.join(',') : 'none' }
         : {}),
+      ...(listSearch.trim() ? { q: listSearch.trim() } : {}),
     })
       .toString()
       .replace(/%2C/g, ',');
     window.history.replaceState(null, '', query ? `${listOnly.path}?${query}` : listOnly.path);
-  }, [listOnly, listState, filters.customer, selectedChannels]);
+  }, [listOnly, listState, filters.customer, selectedChannels, listSearch]);
 
   const params = useMemo(() => {
     return new URLSearchParams({
@@ -293,8 +308,9 @@ export const CalendarWeekProvider: FC<{
       customer: filters?.customer?.toString() || '',
       state: listState,
       ...(selectedChannels ? { integrations: selectedChannels.join(',') } : {}),
+      ...(listSearch.trim() ? { search: listSearch.trim() } : {}),
     }).toString();
-  }, [listPage, filters.customer, listState, selectedChannels]);
+  }, [listPage, filters.customer, listState, selectedChannels, listSearch]);
 
   const loadListData = useCallback(async () => {
     const response = await fetch(`/posts/list?${listParams}`);
@@ -476,6 +492,8 @@ export const CalendarWeekProvider: FC<{
         setListState,
         selectedChannels,
         setSelectedChannels,
+        listSearch,
+        setListSearch,
         currentHour,
       }}
     >

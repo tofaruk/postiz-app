@@ -272,6 +272,9 @@ export class PostsRepository {
             },
           };
 
+    const search = query.search?.trim();
+    const contains = { contains: search, mode: 'insensitive' as const };
+
     return {
       AND: [
         {
@@ -281,12 +284,28 @@ export class PostsRepository {
             },
           ],
         },
+        // The search box (and links from the studio, which search for a post id): the post itself by id or group, or
+        // words in its text, one of its tags or its channel's name.
+        ...(search
+          ? [
+              {
+                OR: [
+                  { id: search },
+                  { group: search },
+                  { content: contains },
+                  { tags: { some: { tag: { deletedAt: null as Date | null, name: contains } } } },
+                  { integration: { name: contains } },
+                ],
+              },
+            ]
+          : []),
       ],
       ...stateAndDate,
       // Published posts were already posted (publishDate in the past), so fetch
-      // all of them, and failed ones too (their time has passed); everything
-      // else stays upcoming. Ordering handles the rest.
-      ...(stateFilter === 'published' || stateFilter === 'error'
+      // all of them, and failed ones too (their time has passed), and drafts
+      // (a draft keeps the date it was saved with, often already past); the
+      // queue stays upcoming. Ordering handles the rest.
+      ...(stateFilter === 'published' || stateFilter === 'error' || stateFilter === 'draft'
         ? {}
         : { publishDate: { gte: dayjs.utc().toDate() } }),
       deletedAt: null as Date | null,

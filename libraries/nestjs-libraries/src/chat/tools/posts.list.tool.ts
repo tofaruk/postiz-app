@@ -38,12 +38,17 @@ export class PostsListTool implements AgentToolInterface {
 List the organization's posts scheduled to be published between two dates (the same data as the "List Posts" API endpoint).
 Returns every post in the window whatever its state (scheduled, draft, published, errored).
 "startDate" and "endDate" are required (UTC) - to list all upcoming posts, pass a wide window (for example from now to a year ahead).
-Each item has an "id", its publish date, state, error (for errored posts), content, channel and current provider settings.
+Each item has an "id", its publish date, state, error (for errored posts), content, channel, current provider settings and tags.
+"tag" keeps only posts with a tag containing it (case-insensitive): a full post tag such as "a2_vocabulary_de_to_en_60_video",
+or a part of one such as "a2_vocabulary_de_to_en_60_" (every post of part 60) or "_story_" (every Story image post).
+To move posts found this way to other times, use postChangeDateTool with each post's "id".
 `,
       inputSchema: z.object({
         startDate: z
           .string()
-          .describe('Start of the window (UTC), for example 2026-07-20T00:00:00'),
+          .describe(
+            'Start of the window (UTC), for example 2026-07-20T00:00:00'
+          ),
         endDate: z
           .string()
           .describe('End of the window (UTC), for example 2026-08-20T00:00:00'),
@@ -51,14 +56,18 @@ Each item has an "id", its publish date, state, error (for errored posts), conte
           .string()
           .optional()
           .describe('Optional customer (group) id to filter the channels by'),
+        tag: z
+          .string()
+          .optional()
+          .describe(
+            'Optional: only posts with a tag containing this text (case-insensitive), e.g. a2_vocabulary_de_to_en_60_ for every post of that part'
+          ),
       }),
       outputSchema: z.object({
         output: z.object({
           posts: z.array(
             z.object({
-              id: z
-                .string()
-                .describe('The post id'),
+              id: z.string().describe('The post id'),
               publishDate: z.string().describe('UTC time'),
               state: z.string().describe('QUEUE, DRAFT, PUBLISHED or ERROR'),
               error: z
@@ -68,13 +77,14 @@ Each item has an "id", its publish date, state, error (for errored posts), conte
                   'Curated failure message for errored posts, null otherwise'
                 ),
               content: z.string(),
-              settings: z
-                .any()
-                .describe('The post current provider settings'),
+              settings: z.any().describe('The post current provider settings'),
               group: z.string(),
               integrationId: z.string(),
               platform: z.string(),
               integrationName: z.string(),
+              tags: z
+                .array(z.string())
+                .describe('The post tags (not hashtags)'),
             })
           ),
         }),
@@ -91,22 +101,32 @@ Each item has an "id", its publish date, state, error (for errored posts), conte
           customer: inputData.customer,
         } as any);
 
+        const tagOf = (p: any): string[] =>
+          (p.tags || []).map((t: any) => t?.tag?.name).filter(Boolean);
+        const wanted = inputData.tag?.trim().toLowerCase();
         return {
           output: {
-            posts: (posts || []).map((p: any) => ({
-              id: p.id,
-              publishDate: dayjs(p.publishDate)
-                .utc()
-                .format('YYYY-MM-DDTHH:mm:ss'),
-              state: p.state,
-              error: p.error ?? null,
-              content: p.content || '',
-              settings: parseSettings(p.settings),
-              group: p.group,
-              integrationId: p.integration?.id,
-              platform: p.integration?.providerIdentifier,
-              integrationName: p.integration?.name,
-            })),
+            posts: (posts || [])
+              .filter(
+                (p: any) =>
+                  !wanted ||
+                  tagOf(p).some((name) => name.toLowerCase().includes(wanted))
+              )
+              .map((p: any) => ({
+                id: p.id,
+                publishDate: dayjs(p.publishDate)
+                  .utc()
+                  .format('YYYY-MM-DDTHH:mm:ss'),
+                state: p.state,
+                error: p.error ?? null,
+                content: p.content || '',
+                settings: parseSettings(p.settings),
+                group: p.group,
+                integrationId: p.integration?.id,
+                platform: p.integration?.providerIdentifier,
+                integrationName: p.integration?.name,
+                tags: tagOf(p),
+              })),
           },
         };
       },
