@@ -9,6 +9,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import dayjs from 'dayjs';
@@ -189,10 +190,12 @@ export const CalendarWeekProvider: FC<{
     ? 'list'
     : searchParams.get('display') || displaySaved;
 
-  // List view state
+  // List view state. The Publish page reopens on the tab in its address (?tab=draft).
+  const listStates: ListStateFilter[] = ['all', 'scheduled', 'draft', 'published', 'error'];
+  const initTab = listOnly ? (searchParams.get('tab') as ListStateFilter | null) : null;
   const [listPage, setListPage] = useState(0);
   const [listState, setListStateRaw] = useState<ListStateFilter>(
-    listOnly?.initialState ?? 'all'
+    initTab && listStates.includes(initTab) ? initTab : listOnly?.initialState ?? 'all'
   );
   const setListState = useCallback((next: ListStateFilter) => {
     setListStateRaw(next);
@@ -209,9 +212,20 @@ export const CalendarWeekProvider: FC<{
       ? { startDate: initStartDate, endDate: initEndDate }
       : getDateRange(display);
 
+  // The Publish page reopens on the channels in its address: ?channels=<id>,<id> (?channels=none: none chosen; the
+  // older ?channel=<id> still works). Without it, every channel.
+  const initChannels = listOnly
+    ? searchParams.get('channels') ?? searchParams.get('channel')
+    : null;
   const [selectedChannels, setSelectedChannelsRaw] = useState<
     string[] | null
-  >(null);
+  >(
+    initChannels === 'none'
+      ? []
+      : initChannels
+      ? initChannels.split(',').filter(Boolean)
+      : null
+  );
   const setSelectedChannels = useCallback((next: string[] | null) => {
     setSelectedChannelsRaw(next);
     setListPage(0);
@@ -224,9 +238,30 @@ export const CalendarWeekProvider: FC<{
     display,
   });
 
+  // A new customer clears the channel choice; the Publish page keeps the channel it was opened with.
+  const customerSeen = useRef(false);
   useEffect(() => {
+    if (!customerSeen.current) {
+      customerSeen.current = true;
+      if (listOnly) return;
+    }
     setSelectedChannels(null);
   }, [filters.customer]);
+
+  // The Publish page keeps its tab, customer and channels in the address, so a refresh or a bookmark opens the same view.
+  useEffect(() => {
+    if (!listOnly) return;
+    const query = new URLSearchParams({
+      ...(listState !== listOnly.initialState ? { tab: listState } : {}),
+      ...(filters.customer ? { customer: filters.customer } : {}),
+      ...(selectedChannels
+        ? { channels: selectedChannels.length ? selectedChannels.join(',') : 'none' }
+        : {}),
+    })
+      .toString()
+      .replace(/%2C/g, ',');
+    window.history.replaceState(null, '', query ? `${listOnly.path}?${query}` : listOnly.path);
+  }, [listOnly, listState, filters.customer, selectedChannels]);
 
   const params = useMemo(() => {
     return new URLSearchParams({
@@ -331,16 +366,9 @@ export const CalendarWeekProvider: FC<{
       customer: string | null;
     }) => {
       if (listOnly) {
-        // The Publish page only changes its customer; it stays a list.
+        // The Publish page only changes its customer; it stays a list (its address is kept by the effect above).
         setFilters({ ...newFilters, display: 'list' });
         setListPage(0);
-        window.history.replaceState(
-          null,
-          '',
-          newFilters.customer
-            ? `${listOnly.path}?customer=${newFilters.customer}`
-            : listOnly.path
-        );
         return;
       }
       setDisplaySaved(newFilters.display);

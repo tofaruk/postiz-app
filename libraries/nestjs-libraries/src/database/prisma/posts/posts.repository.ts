@@ -379,19 +379,52 @@ export class PostsRepository {
     };
   }
 
-  // How many posts each list state has, with the same customer and channel filters (the Publish page's tab counts).
+  // How many posts each list state has, with the same customer and channel filters (the Publish page's tab counts),
+  // and how many each channel has queued, with the customer filter only (its channel list shows every channel).
   async getPostsListCounts(orgId: string, query: GetPostsListDto) {
     const states = ['scheduled', 'draft', 'published', 'error'] as const;
-    const counts = await Promise.all(
-      states.map((state) =>
-        this._post.model.post.count({
-          where: this.postsListWhere(orgId, query, state),
-        })
-      )
-    );
-    return Object.fromEntries(
-      states.map((state, i) => [state, counts[i]])
-    ) as Record<(typeof states)[number], number>;
+    const [counts, queued] = await Promise.all([
+      Promise.all(
+        states.map((state) =>
+          this._post.model.post.count({
+            where: this.postsListWhere(orgId, query, state),
+          })
+        )
+      ),
+      this._post.model.post.groupBy({
+        by: ['integrationId'],
+        where: this.postsListWhere(
+          orgId,
+          { ...query, integrations: undefined },
+          'scheduled'
+        ),
+        _count: { _all: true },
+      }),
+    ]);
+    return {
+      ...(Object.fromEntries(
+        states.map((state, i) => [state, counts[i]])
+      ) as Record<(typeof states)[number], number>),
+      queuedByChannel: Object.fromEntries(
+        queued.map((row) => [row.integrationId, row._count._all])
+      ) as Record<string, number>,
+    };
+  }
+
+  // The times these channels already have a post at (queued, sent or failed; a draft takes no slot), from `from` to
+  // `to`: what the Publish page's free queue slots leave out.
+  getChannelPostTimes(orgId: string, integrationIds: string[], from: Date, to: Date) {
+    return this._post.model.post.findMany({
+      where: {
+        organizationId: orgId,
+        integrationId: { in: integrationIds },
+        deletedAt: null,
+        parentPostId: null,
+        state: { not: State.DRAFT },
+        publishDate: { gte: from, lte: to },
+      },
+      select: { integrationId: true, publishDate: true },
+    });
   }
 
   async deletePost(orgId: string, group: string) {
