@@ -160,6 +160,15 @@ export class PostsController {
     return this._postsService.getPostsList(org.id, query);
   }
 
+  // The Publish page's tab counts: { scheduled, draft, published, error }, with the list's customer and channel filters.
+  @Get('/list/counts')
+  async getPostsListCounts(
+    @GetOrgFromRequest() org: Organization,
+    @Query() query: GetPostsListDto
+  ) {
+    return this._postsService.getPostsListCounts(org.id, query);
+  }
+
   @Get('/old')
   oldPosts(
     @GetOrgFromRequest() org: Organization,
