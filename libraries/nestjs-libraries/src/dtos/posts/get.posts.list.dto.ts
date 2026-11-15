@@ -6,6 +6,7 @@ import {
   Max,
   IsIn,
   IsArray,
+  MaxLength,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -39,4 +40,10 @@ export class GetPostsListDto {
   @IsOptional()
   @IsIn(['all', 'scheduled', 'draft', 'published', 'error'])
   state?: PostListStateFilter = 'all';
+
+  // The Publish page's search: a post id or group, or words in the text, a tag or the channel name.
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
 }

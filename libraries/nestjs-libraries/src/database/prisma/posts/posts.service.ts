@@ -1480,6 +1480,28 @@ export class PostsService {
     return newDate;
   }
 
+  // No Time German (MCP postChangeDateTool): moves a post that hasn't gone out yet to another time. A queued or failed
+  // post is queued again at the new time; a draft stays a draft unless `queue` is set, which puts it in the queue (it is
+  // checked when it goes out, like any queued post). Returns the post's id, state and new time.
+  async movePost(orgId: string, id: string, date: string, queue = false) {
+    const post = await this._postRepository.getPostById(id, orgId);
+    if (!post || post.deletedAt) throw new BadRequestException('Post not found');
+    if (post.parentPostId) throw new BadRequestException('This id belongs to a comment, pass the id of the main post');
+    if (post.state === 'PUBLISHED') throw new BadRequestException('This post was already published, it cannot be moved');
+    const when = dayjs.utc(date);
+    if (!when.isValid()) throw new BadRequestException('The date is not valid');
+    const draft = post.state === 'DRAFT' && !queue;
+    if (!draft && !when.isAfter(dayjs.utc())) throw new BadRequestException('A post to be published needs a time in the future');
+    await this._postRepository.changeDate(orgId, id, when.toISOString(), draft, 'schedule');
+    await this.startWorkflow(
+      post.integration.providerIdentifier.split('-')[0].toLowerCase(),
+      id,
+      orgId,
+      draft ? 'DRAFT' : 'QUEUE'
+    );
+    return { id, state: draft ? 'DRAFT' : 'QUEUE', publishDate: when.format('YYYY-MM-DDTHH:mm:ss') };
+  }
+
   async generatePostsDraft(orgId: string, body: CreateGeneratedPostsDto) {
     const getAllIntegrations = (
       await this._integrationService.getIntegrationsList(orgId)
@@ -1801,6 +1823,32 @@ export class PostsService {
       if (stale.length) {
         await this._postRepository.detachAnchorsForPost(post.id, stale);
       }
+    }
+  }
+
+  // Tags a post is created with through the public API (e.g. the Video Factory publisher's post tags), made when the
+  // organization doesn't have them yet, since a post only gets tags that exist. The colour comes from the request's
+  // `color` (a hex colour) when given, else by the tag's last part: _video blue, _story_<n> green, _article orange.
+  async ensureTags(orgId: string, tags: { label?: string; color?: string }[]) {
+    const wanted = [
+      ...new Map(
+        (tags || [])
+          .filter((tag) => typeof tag?.label === 'string' && tag.label.trim())
+          .map((tag) => [tag.label!.trim(), tag])
+      ).entries(),
+    ].slice(0, 20);
+    if (!wanted.length) return;
+    const existing = new Set((await this._postRepository.getTags(orgId)).map((tag) => tag.name));
+    for (const [name, tag] of wanted) {
+      if (existing.has(name)) continue;
+      const color = /^#[0-9a-fA-F]{6}$/.test(tag.color || '')
+        ? tag.color!
+        : /_story_\d+$/.test(name)
+        ? '#2E7D32'
+        : name.endsWith('_article')
+        ? '#EF6C00'
+        : '#1565C0';
+      await this._postRepository.createTag(orgId, { name, color });
     }
   }
 

@@ -4,7 +4,8 @@
 // Queue / Drafts / Sent / Failed with their counts, channel and customer filters, and a card per post with its
 // channel, text, media and actions. Built on the calendar's list mode (CalendarWeekProvider with `listOnly`) and its
 // post actions (usePostActions), so editing, duplicating and deleting work exactly as in the calendar. Phone-first:
-// one column, filters in a bottom sheet, large tap targets.
+// one column, filters in a bottom sheet, large tap targets. A search box finds posts by id, text, tag or channel name;
+// the studio links to a post with ?q=<post id>, and the page opens on the tab that has it.
 import { CSSProperties, FC, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
@@ -89,7 +90,7 @@ const PublishView = () => {
   const calendar = useCalendar();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // The tab counts, with the same customer and channel filters as the list.
+  // The tab counts, with the same customer, channel and search filters as the list.
   const countsParams = useMemo(
     () =>
       new URLSearchParams({
@@ -97,14 +98,25 @@ const PublishView = () => {
         ...(calendar.selectedChannels
           ? { integrations: calendar.selectedChannels.join(',') }
           : {}),
+        ...(calendar.listSearch.trim() ? { search: calendar.listSearch.trim() } : {}),
       }).toString(),
-    [calendar.customer, calendar.selectedChannels]
+    [calendar.customer, calendar.selectedChannels, calendar.listSearch]
   );
   const { data: counts, mutate: reloadCounts } = usePostsListCounts(countsParams);
   // Anything that changes the list (edit, delete, duplicate, a new post) changes the counts too.
   useEffect(() => {
     reloadCounts();
   }, [calendar.listPosts]);
+  // Opened with a search (e.g. the studio's link to one post): if the tab it opened on has nothing, go to the first tab
+  // that has a match. Only once, so choosing a tab afterwards is left alone.
+  const openedWithSearch = useRef(!!calendar.listSearch);
+  useEffect(() => {
+    if (!openedWithSearch.current || !counts) return;
+    openedWithSearch.current = false;
+    if (counts[calendar.listState as Tab]) return;
+    const found = tabsOrder.find((tab) => counts[tab]);
+    if (found) calendar.setListState(found);
+  }, [counts]);
 
   const tabs: { value: Tab; label: string }[] = [
     { value: 'scheduled', label: t('queue', 'Queue') },
@@ -200,6 +212,8 @@ const PublishView = () => {
         </div>
       </div>
 
+      <SearchBox />
+
       <ChannelStrip queued={counts?.queuedByChannel} />
 
       <PostList />
@@ -223,6 +237,51 @@ const PublishView = () => {
         </BottomSheet>
       )}
     </div>
+    </div>
+  );
+};
+
+const tabsOrder: Tab[] = ['scheduled', 'draft', 'published', 'error'];
+
+// Finds posts by id, words in the text, a tag (e.g. a studio post tag like a2_vocabulary_de_to_en_60_video) or the
+// channel name. The list follows after a short pause in typing.
+const SearchBox = () => {
+  const t = useT();
+  const { listSearch, setListSearch } = useCalendar();
+  const [value, setValue] = useState(listSearch);
+  useEffect(() => {
+    setValue(listSearch);
+  }, [listSearch]);
+  useEffect(() => {
+    if (value === listSearch) return;
+    const timer = setTimeout(() => setListSearch(value), 400);
+    return () => clearTimeout(timer);
+  }, [value]);
+  return (
+    <div className="relative max-w-[900px] w-full mx-auto">
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') setListSearch(value);
+        }}
+        placeholder={t('search_posts', 'Search posts: text, tag, channel or post id')}
+        aria-label={t('search_posts', 'Search posts: text, tag, channel or post id')}
+        className="w-full h-[44px] rounded-[8px] border border-newTableBorder bg-newBgColorInner px-[12px] pe-[40px] text-[14px] outline-none focus:border-[#612BD3]"
+      />
+      {value && (
+        <button
+          onClick={() => {
+            setValue('');
+            setListSearch('');
+          }}
+          aria-label={t('clear', 'Clear')}
+          className="absolute end-[4px] top-[4px] w-[36px] h-[36px] rounded-[6px] flex items-center justify-center hover:bg-boxFocused"
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 };
@@ -406,8 +465,11 @@ const PostList = () => {
 
   // The queue of one channel also shows its free time slots, like Buffer, to fill with a new post or a draft. (Slots
   // belong to a channel, so with several channels in view there are none, just a hint.)
+  // (Not while searching: the list then shows only the matching posts.)
   const slotChannel =
-    listState === 'scheduled' && calendar.selectedChannels?.length === 1 ? calendar.selectedChannels[0] : null;
+    listState === 'scheduled' && calendar.selectedChannels?.length === 1 && !calendar.listSearch.trim()
+      ? calendar.selectedChannels[0]
+      : null;
   const { data: slotData, mutate: reloadSlots } = usePostsListSlots(slotChannel);
   useEffect(() => {
     if (slotChannel) reloadSlots();
@@ -433,7 +495,7 @@ const PostList = () => {
     return [...byDay.entries()];
   }, [listPosts, slots]);
   const slotHint =
-    listState === 'scheduled' && !slotChannel ? (
+    listState === 'scheduled' && !slotChannel && !calendar.listSearch.trim() ? (
       <div className="text-[13px] text-textColor/60 text-center max-w-[900px] w-full mx-auto">
         {t('pick_channel_for_slots', 'Pick one channel to see its free time slots.')}
       </div>
@@ -456,7 +518,9 @@ const PostList = () => {
     };
     return (
       <div className="flex flex-1 items-center justify-center py-[60px] text-[16px] text-center">
-        {empty[listState] || t('no_posts', 'No posts')}
+        {calendar.listSearch.trim()
+          ? t('no_posts_match_search', 'No posts here match your search')
+          : empty[listState] || t('no_posts', 'No posts')}
       </div>
     );
   }
