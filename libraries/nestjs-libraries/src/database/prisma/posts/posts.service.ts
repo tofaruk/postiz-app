@@ -503,6 +503,10 @@ export class PostsService {
     );
   }
 
+  getPostsListCounts(orgId: string, query: GetPostsListDto) {
+    return this._postRepository.getPostsListCounts(orgId, query);
+  }
+
   async updateMedia(id: string, imagesList: any[], convertToJPEG = false) {
     try {
       let imageUpdateNeeded = false;

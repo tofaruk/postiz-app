@@ -249,12 +249,12 @@ export class PostsRepository {
     }, [] as any[]);
   }
 
-  async getPostsList(orgId: string, query: GetPostsListDto) {
-    const page = query.page || 0;
-    const limit = query.limit || 20;
-    const skip = page * limit;
-
-    const stateFilter = query.state || 'all';
+  // The posts the list shows for a state, with the customer and channel filters. Shared by the list and its counts.
+  private postsListWhere(
+    orgId: string,
+    query: GetPostsListDto,
+    stateFilter: NonNullable<GetPostsListDto['state']>
+  ) {
     const stateAndDate =
       stateFilter === 'scheduled'
         ? {
@@ -264,16 +264,15 @@ export class PostsRepository {
         ? { state: State.DRAFT }
         : stateFilter === 'published'
         ? { state: State.PUBLISHED }
+        : stateFilter === 'error'
+        ? { state: State.ERROR }
         : {
             state: {
               in: [State.QUEUE, State.DRAFT, State.PUBLISHED, State.ERROR],
             },
           };
 
-    const orderDirection: 'asc' | 'desc' =
-      stateFilter === 'published' ? 'desc' : 'asc';
-
-    const where = {
+    return {
       AND: [
         {
           OR: [
@@ -285,8 +284,9 @@ export class PostsRepository {
       ],
       ...stateAndDate,
       // Published posts were already posted (publishDate in the past), so fetch
-      // all of them; everything else stays upcoming. Ordering handles the rest.
-      ...(stateFilter === 'published'
+      // all of them, and failed ones too (their time has passed); everything
+      // else stays upcoming. Ordering handles the rest.
+      ...(stateFilter === 'published' || stateFilter === 'error'
         ? {}
         : { publishDate: { gte: dayjs.utc().toDate() } }),
       deletedAt: null as Date | null,
@@ -308,8 +308,21 @@ export class PostsRepository {
           : {}),
       },
     };
+  }
 
-    const [posts, total] = await Promise.all([
+  async getPostsList(orgId: string, query: GetPostsListDto) {
+    const page = query.page || 0;
+    const limit = query.limit || 20;
+    const skip = page * limit;
+
+    const stateFilter = query.state || 'all';
+    // What already happened comes newest first; what is coming, soonest first.
+    const orderDirection: 'asc' | 'desc' =
+      stateFilter === 'published' || stateFilter === 'error' ? 'desc' : 'asc';
+
+    const where = this.postsListWhere(orgId, query, stateFilter);
+
+    const [list, total] = await Promise.all([
       this._post.model.post.findMany({
         where,
         skip,
@@ -327,6 +340,9 @@ export class PostsRepository {
           intervalInDays: true,
           group: true,
           creationMethod: true,
+          // the media (for thumbnails) and why a failed post failed
+          image: true,
+          error: true,
           tags: {
             where: {
               tag: {
@@ -349,6 +365,10 @@ export class PostsRepository {
       }),
       this._post.model.post.count({ where }),
     ]);
+    const posts = list.map((post) => ({
+      ...post,
+      error: this.curatedError(post.error),
+    }));
 
     return {
       posts,
@@ -357,6 +377,21 @@ export class PostsRepository {
       limit,
       hasMore: skip + posts.length < total,
     };
+  }
+
+  // How many posts each list state has, with the same customer and channel filters (the Publish page's tab counts).
+  async getPostsListCounts(orgId: string, query: GetPostsListDto) {
+    const states = ['scheduled', 'draft', 'published', 'error'] as const;
+    const counts = await Promise.all(
+      states.map((state) =>
+        this._post.model.post.count({
+          where: this.postsListWhere(orgId, query, state),
+        })
+      )
+    );
+    return Object.fromEntries(
+      states.map((state, i) => [state, counts[i]])
+    ) as Record<(typeof states)[number], number>;
   }
 
   async deletePost(orgId: string, group: string) {

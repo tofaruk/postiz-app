@@ -29,7 +29,7 @@ import { expandPostsList, expandPosts } from '@gitroom/helpers/utils/posts.list.
 extend(isoWeek);
 extend(weekOfYear);
 
-export type ListStateFilter = 'all' | 'scheduled' | 'draft' | 'published';
+export type ListStateFilter = 'all' | 'scheduled' | 'draft' | 'published' | 'error';
 
 export const CalendarContext = createContext({
   startDate: newDayjs().startOf('isoWeek').format('YYYY-MM-DD'),
@@ -169,7 +169,10 @@ export const useNow = (unit: 'minute' | 'hour' = 'minute') => {
 export const CalendarWeekProvider: FC<{
   children: ReactNode;
   integrations: Integrations[];
-}> = ({ children, integrations }) => {
+  // The Publish page (/publish): always the list, starting on this state, with its own address in the browser bar.
+  // The calendar's saved view is left alone.
+  listOnly?: { path: string; initialState: ListStateFilter };
+}> = ({ children, integrations, listOnly }) => {
   const fetch = useFetch();
   const [internalData, setInternalData] = useState([] as any[]);
   const [trendings] = useState<string[]>([]);
@@ -182,11 +185,15 @@ export const CalendarWeekProvider: FC<{
       ? 'day'
       : 'week'
   );
-  const display = searchParams.get('display') || displaySaved;
+  const display = listOnly
+    ? 'list'
+    : searchParams.get('display') || displaySaved;
 
   // List view state
   const [listPage, setListPage] = useState(0);
-  const [listState, setListStateRaw] = useState<ListStateFilter>('all');
+  const [listState, setListStateRaw] = useState<ListStateFilter>(
+    listOnly?.initialState ?? 'all'
+  );
   const setListState = useCallback((next: ListStateFilter) => {
     setListStateRaw(next);
     setListPage(0);
@@ -323,6 +330,19 @@ export const CalendarWeekProvider: FC<{
       display: 'week' | 'month' | 'day' | 'list';
       customer: string | null;
     }) => {
+      if (listOnly) {
+        // The Publish page only changes its customer; it stays a list.
+        setFilters({ ...newFilters, display: 'list' });
+        setListPage(0);
+        window.history.replaceState(
+          null,
+          '',
+          newFilters.customer
+            ? `${listOnly.path}?customer=${newFilters.customer}`
+            : listOnly.path
+        );
+        return;
+      }
       setDisplaySaved(newFilters.display);
       setFilters(newFilters);
       setInternalData([]);
@@ -340,7 +360,7 @@ export const CalendarWeekProvider: FC<{
       ].filter((f) => f);
       window.history.replaceState(null, '', `/launches?${path.join('&')}`);
     },
-    []
+    [listOnly]
   );
 
   const filterByChannels = useCallback(

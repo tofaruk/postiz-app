@@ -9,7 +9,8 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
-export type PostListStateFilter = 'all' | 'scheduled' | 'draft' | 'published';
+// 'error': posts that failed to publish (the Publish page's Failed tab).
+export type PostListStateFilter = 'all' | 'scheduled' | 'draft' | 'published' | 'error';
 
 export class GetPostsListDto {
   @IsOptional()
@@ -36,6 +37,6 @@ export class GetPostsListDto {
   integrations?: string[];
 
   @IsOptional()
-  @IsIn(['all', 'scheduled', 'draft', 'published'])
+  @IsIn(['all', 'scheduled', 'draft', 'published', 'error'])
   state?: PostListStateFilter = 'all';
 }
