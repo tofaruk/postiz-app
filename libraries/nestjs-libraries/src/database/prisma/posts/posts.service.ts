@@ -18,6 +18,7 @@ import {
 } from '@prisma/client';
 import { GetPostsDto } from '@gitroom/nestjs-libraries/dtos/posts/get.posts.dto';
 import { GetPostsListDto } from '@gitroom/nestjs-libraries/dtos/posts/get.posts.list.dto';
+import { GetPostsListSlotsDto } from '@gitroom/nestjs-libraries/dtos/posts/get.posts.list.slots.dto';
 import { groupBy, shuffle, uniqBy } from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateGeneratedPostsDto } from '@gitroom/nestjs-libraries/dtos/generator/create.generated.posts.dto';
@@ -505,6 +506,36 @@ export class PostsService {
 
   getPostsListCounts(orgId: string, query: GetPostsListDto) {
     return this._postRepository.getPostsListCounts(orgId, query);
+  }
+
+  // The Publish page's free queue slots, per channel like Buffer's queue: each channel's posting times (minutes after
+  // midnight UTC, Settings -> time slots; Postiz's defaults when it has none) on each of the next `days` days, still in
+  // the future, without a post of that channel at that exact time. Sorted by time.
+  async getPostsListSlots(orgId: string, query: GetPostsListSlotsDto) {
+    const days = query.days || 14;
+    const start = dayjs.utc().startOf('day');
+    const now = dayjs.utc();
+    const end = start.add(days, 'day');
+    const taken = await this._postRepository.getChannelPostTimes(
+      orgId,
+      query.integrations,
+      now.toDate(),
+      end.toDate()
+    );
+    const takenKeys = new Set(
+      taken.map((p) => `${p.integrationId}|${dayjs.utc(p.publishDate).format('YYYY-MM-DDTHH:mm')}`)
+    );
+    const slots: { integration: string; date: string }[] = [];
+    for (const integration of query.integrations) {
+      const times = await this._integrationService.findFreeDateTime(orgId, integration);
+      for (let day = 0; day < days; day++)
+        for (const minutes of times.length ? times : [120, 400, 700]) {
+          const date = start.add(day, 'day').add(minutes, 'minute');
+          if (!date.isAfter(now) || takenKeys.has(`${integration}|${date.format('YYYY-MM-DDTHH:mm')}`)) continue;
+          slots.push({ integration, date: date.format('YYYY-MM-DDTHH:mm:00') });
+        }
+    }
+    return { slots: slots.sort((a, b) => a.date.localeCompare(b.date)) };
   }
 
   async updateMedia(id: string, imagesList: any[], convertToJPEG = false) {

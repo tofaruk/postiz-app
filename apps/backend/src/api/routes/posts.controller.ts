@@ -15,6 +15,7 @@ import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.reque
 import { Organization, User } from '@prisma/client';
 import { GetPostsDto } from '@gitroom/nestjs-libraries/dtos/posts/get.posts.dto';
 import { GetPostsListDto } from '@gitroom/nestjs-libraries/dtos/posts/get.posts.list.dto';
+import { GetPostsListSlotsDto } from '@gitroom/nestjs-libraries/dtos/posts/get.posts.list.slots.dto';
 import { CheckPolicies } from '@gitroom/backend/services/auth/permissions/permissions.ability';
 import { ApiTags } from '@nestjs/swagger';
 import { GeneratorDto } from '@gitroom/nestjs-libraries/dtos/generator/generator.dto';
@@ -160,13 +161,23 @@ export class PostsController {
     return this._postsService.getPostsList(org.id, query);
   }
 
-  // The Publish page's tab counts: { scheduled, draft, published, error }, with the list's customer and channel filters.
+  // The Publish page's tab counts: { scheduled, draft, published, error }, with the list's customer and channel
+  // filters, plus queuedByChannel: { <integration id>: queued posts } for its channel list.
   @Get('/list/counts')
   async getPostsListCounts(
     @GetOrgFromRequest() org: Organization,
     @Query() query: GetPostsListDto
   ) {
     return this._postsService.getPostsListCounts(org.id, query);
+  }
+
+  // The Publish page's free queue slots of the given channels for the next days: { slots: [{ integration, date }] }.
+  @Get('/list/slots')
+  async getPostsListSlots(
+    @GetOrgFromRequest() org: Organization,
+    @Query() query: GetPostsListSlotsDto
+  ) {
+    return this._postsService.getPostsListSlots(org.id, query);
   }
 
   @Get('/old')
